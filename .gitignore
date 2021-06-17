@@ -3,3 +3,5 @@ data/*
 test*
 config.py
 .*
+_*
+data.h5

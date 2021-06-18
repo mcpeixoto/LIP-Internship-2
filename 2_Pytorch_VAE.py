@@ -15,28 +15,123 @@ from typing import Optional
 from config import processed_data_path
 from sklearn.utils import shuffle
 
-class dataset(Dataset):
+# Defining the dataset
+
+class dataset(Dataset): #
     def __init__(self, key, random_seed=42):
+        # TODO: Improve efficiency/how names are handled
         # Check if key is valid
         assert key in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid Key!"
 
-        file = join(processed_data_path, key+".csv")
+        # With specified key, get data
+        file = join(processed_data_path, "bkg"+".csv")
+        data = pd.read_csv(file, index_col=0)
 
-        # TODO: IMPROVE, ugly solution
-        xy = pd.read_csv(file)
-        xy.drop(columns=['name'], inplace=True)
-        xy = shuffle(xy, random_state=random_seed)
-        xy = xy.to_numpy()
+        # Shuffle the dataframe
+        data = data.sample(frac=1, random_state=42).reset_index(drop=True)
 
-        self.x = torch.from_numpy(xy)
-        self.y = torch.from_numpy(np.ones(shape=(xy.shape[0], 1)))
-        self.n_samples = xy.shape[0]
+        # This data we want on a seperate variable
+        self.names = torch.from_numpy(data["name"].to_numpy())
+        self.weights = torch.from_numpy(data["weights"].to_numpy())
+
+        data.drop(["name", "weights"], axis=1, inplace=True)
+
+        self.data = torch.from_numpy(data.to_numpy())
+        self.n_samples = data.shape[0]
+
     def __getitem__(self, index):
-        return self.x[index], self.y[index]
+        return self.data[index], self.weights[index], self.names[index]
 
     def __len__(self):
         return self.n_samples
 
+class VAE(pl.LightningModule):
+    def __init__(self, hidden_size, alpha, lr, dataset):
+        """
+        Args:
+        - > hidden_size (int): Latent Hidden Size
+        - > alpha (int): Hyperparameter to control the importance of
+        reconstruction loss vs KL-Divergence Loss
+        - > lr (float): Learning Rate, will not be used if auto_lr_find is used.
+        - > dataset (Optional[str]): Dataset to used
+        """
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.lr = lr
+        self.alpha = alpha
+        self.dataset = dataset
+
+        # Architecture
+        self.encoder = nn.Sequential(
+            nn.Linear(71, 128), 
+            nn.LeakyReLU(),
+            nn.Linear(128, 128),
+            nn.LeakyReLU(), 
+            nn.Linear(128, hidden_size),
+            nn.LeakyReLU()
+        )
+
+        self.hidden2mu = nn.Linear(hidden_size, hidden_size)
+        self.hidden2sigma = nn.Linear(hidden_size, hidden_size)
+        
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_size, 128), 
+            nn.LeakyReLU(),
+            nn.Linear(128, 128),
+            nn.LeakyReLU(),
+            nn.Linear(128, 71), 
+            nn.LeakyReLU(),
+        )
+
+    def encode(self, x):
+        # Pass through encoder
+        out = self.encoder(x)
+        mu = self.hidden2mu(out)
+        sigma = self.hidden2sigma(out)
+        return mu, sigma
+
+    def decode(self, x):
+        # Pass through encoder
+        return self.decoder(x)
+
+    def reparametrize(self, mu, sigma):
+        # Reparametrization Trick
+        # It outputs a sample of the dist.
+        # mu -> average | sigma -> std
+        # e -> Epsilon. Sample from the normal distribution, same shape as mu
+        e = torch.randn(size=(mu.size(0), mu.size(1))) 
+        e = e.type_as(mu) # To the same device
+        return mu + sigma*e
+
+    def forward(self, x):
+        # Pass through encoder
+        mu, sigma = self.encode(x)
+        # Reparametrization Trick
+        hidden = self.reparametrize(mu, sigma)
+        # Pass through decoder
+        output = self.decoder(hidden)
+
+        return mu, sigma, output
+
+    def training_step(self, batch, batch_idx):
+        pass
+
+    def validation_step(self, batch, batch_idx):
+        pass
+
+    def validation_epoch_end(self, outputs):
+        pass
+
+    def configure_optimizers(self):
+        return Adam(self.parameters(), lr=self.lr)
+
+    # Functions for dataloading
+    def train_dataloader(self):
+        pass
+
+    def val_dataloader(self):
+        pass
 
 
 

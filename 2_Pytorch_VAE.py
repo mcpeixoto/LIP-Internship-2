@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 import random
+from torch.utils.data.dataset import TensorDataset
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import save_image
@@ -16,25 +17,38 @@ from config import processed_data_path
 from sklearn.utils import shuffle
 
 # Defining the dataset
-
 class dataset(Dataset): #
-    def __init__(self, key, random_seed=42):
+    def __init__(self, key, type, random_seed=42):
         # TODO: Improve efficiency/how names are handled
         # Check if key is valid
         assert key in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid Key!"
 
         # With specified key, get data
-        file = join(processed_data_path, "bkg"+".csv")
+        file = join(processed_data_path, key+".csv")
         data = pd.read_csv(file, index_col=0)
 
         # Shuffle the dataframe
-        data = data.sample(frac=1, random_state=42).reset_index(drop=True)
+        data = data.sample(frac=1, random_state=random_seed).reset_index(drop=True)
 
         # This data we want on a seperate variable
-        self.names = torch.from_numpy(data["name"].to_numpy())
+        self.names = data["name"]
         self.weights = torch.from_numpy(data["weights"].to_numpy())
 
         data.drop(["name", "weights"], axis=1, inplace=True)
+        
+        # In order to have std = 1 and mean = 0
+        data = (data-data.mean())/data.std()
+
+        # This will equally devide the dataset into 
+        # train, validation and test
+        train, validation, test = np.split(data.sample(frac=1), [int(len(data)*(1/3)), int(len(data)*(2/3))])
+        
+        if type == "train":
+            data = train
+        elif type == "validation":
+            data = validation
+        elif type == "test":
+            data = test
 
         self.data = torch.from_numpy(data.to_numpy())
         self.n_samples = data.shape[0]
@@ -44,6 +58,11 @@ class dataset(Dataset): #
 
     def __len__(self):
         return self.n_samples
+
+
+
+
+
 
 class VAE(pl.LightningModule):
     def __init__(self, hidden_size, alpha, lr, dataset):

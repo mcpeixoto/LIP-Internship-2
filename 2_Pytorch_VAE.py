@@ -17,9 +17,9 @@ from config import processed_data_path
 from sklearn.utils import shuffle
 
 # Defining the dataset
-class dataset(Dataset): #
+class _dataset(Dataset): #
     def __init__(self, key, type, random_seed=42):
-        # TODO: Improve efficiency/how names are handled
+        # TODO: Improve efficiency/handle names
         # Check if key is valid
         assert key in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid Key!"
 
@@ -29,15 +29,6 @@ class dataset(Dataset): #
 
         # Shuffle the dataframe
         data = data.sample(frac=1, random_state=random_seed).reset_index(drop=True)
-
-        # This data we want on a seperate variable
-        self.names = data["name"]
-        self.weights = torch.from_numpy(data["weights"].to_numpy())
-
-        data.drop(["name", "weights"], axis=1, inplace=True)
-        
-        # In order to have std = 1 and mean = 0
-        data = (data-data.mean())/data.std()
 
         # This will equally devide the dataset into 
         # train, validation and test
@@ -49,41 +40,47 @@ class dataset(Dataset): #
             data = validation
         elif type == "test":
             data = test
+        
+        # This data we want on a seperate variable
+        self.weights = torch.from_numpy(data["weights"].to_numpy(dtype=np.float32))
 
-        self.data = torch.from_numpy(data.to_numpy())
+        data.drop(["name", "weights"], axis=1, inplace=True)
+        
+        # In order to have std = 1 and mean = 0 TODO
+        data = (data-data.mean())/data.std()
+
+        self.data = torch.from_numpy(data.to_numpy(dtype=np.float32))
         self.n_samples = data.shape[0]
 
     def __getitem__(self, index):
-        return self.data[index], self.weights[index], self.names[index]
+        return self.data[index], self.weights[index]
 
     def __len__(self):
         return self.n_samples
 
 
 
-
-
-
 class VAE(pl.LightningModule):
-    def __init__(self, hidden_size, alpha, lr, dataset):
+    def __init__(self, dataset, batch_size, hidden_size, alpha, lr):
         """
         Args:
-        - > hidden_size (int): Latent Hidden Size
-        - > alpha (int): Hyperparameter to control the importance of
+        - > key e {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}; it's the type of data
+        - > hidden_size : Latent Hidden Size
+        - > alpha : Hyperparameter to control the importance of
         reconstruction loss vs KL-Divergence Loss
-        - > lr (float): Learning Rate, will not be used if auto_lr_find is used.
-        - > dataset (Optional[str]): Dataset to used
+        - > lr : Learning Rate, will not be used if auto_lr_find is used.
+        - > dataset : Dataset to used
         """
         super().__init__()
-
+        self.dataset = dataset
+        self.batch_size = batch_size
         self.hidden_size = hidden_size
         self.lr = lr
         self.alpha = alpha
-        self.dataset = dataset
 
         # Architecture
         self.encoder = nn.Sequential(
-            nn.Linear(71, 128), 
+            nn.Linear(69, 128), 
             nn.LeakyReLU(),
             nn.Linear(128, 128),
             nn.LeakyReLU(), 
@@ -99,7 +96,7 @@ class VAE(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(128, 128),
             nn.LeakyReLU(),
-            nn.Linear(128, 71), 
+            nn.Linear(128, 69), 
             nn.LeakyReLU(),
         )
 
@@ -134,10 +131,53 @@ class VAE(pl.LightningModule):
         return mu, sigma, output
 
     def training_step(self, batch, batch_idx):
-        pass
+        x, weights = batch
+        mu, epsilon, x_out = self.forward(x)
+
+        # kl loss é a loss da distribuição - disentangle auto encoders?
+        # kl aparece para a distribuição nao ser mt diferente da normal
+
+        # a loss é a loss de reconstrução mais a kl loss!
+        kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        recon_loss_criterion = nn.MSELoss()
+        recon_loss = recon_loss_criterion(x, x_out)
+        # print(kl_loss.item(),recon_loss.item())
+        loss = recon_loss*self.alpha + kl_loss
+
+        # Weights on final loss
+        loss = (weights * loss) / weights.sum()
+        loss = torch.mean(loss, dtype=torch.float32)
+
+        self.log('train_loss', loss, on_step=False,
+                 on_epoch=True, prog_bar=True)
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        x, weights = batch
+
+        mu, epsilon, x_out = self.forward(x)
+
+        # K-L Loss
+        kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        # Weights on KL Loss
+        kl_loss = (weights * kl_loss) / weights.sum()
+        kl_loss = torch.mean(kl_loss, dtype=torch.float32)
+
+        # Reconstruction loss
+        recon_loss_criterion = nn.MSELoss()
+        recon_loss = recon_loss_criterion(x, x_out)
+        # Weights on recon loss
+        recon_loss = (weights * recon_loss) / weights.sum()
+        recon_loss = torch.mean(recon_loss, dtype=torch.float32)
+
+
+        loss = recon_loss*self.alpha + kl_loss
+
+        self.log('val_kl_loss', kl_loss, on_step=False, on_epoch=True)
+        self.log('val_recon_loss', recon_loss, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
+
+        return x_out, loss
 
     def validation_epoch_end(self, outputs):
         pass
@@ -147,11 +187,26 @@ class VAE(pl.LightningModule):
 
     # Functions for dataloading
     def train_dataloader(self):
-        pass
+        train_set = _dataset(self.dataset, type="train")
+        return DataLoader(train_set, batch_size=self.batch_size, num_workers=2)
 
     def val_dataloader(self):
-        pass
+        val_set = _dataset(self.dataset, type="validation")
+        return DataLoader(val_set, batch_size=self.batch_size, num_workers=2)
 
 
 
 
+if __name__ == "__main__":
+    trainer = Trainer(
+        fast_dev_run = True
+        )
+    model = VAE(
+    dataset = "bkg",
+    hidden_size=5,
+    batch_size = 1024,
+    alpha = 1, 
+    lr = 0.001,
+    )
+
+    trainer.fit(model)

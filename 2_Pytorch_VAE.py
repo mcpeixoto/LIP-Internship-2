@@ -87,7 +87,7 @@ class VAE(pl.LightningModule):
         )
 
         self.hidden2mu = nn.Linear(hidden_size, hidden_size)
-        self.hidden2sigma = nn.Linear(hidden_size, hidden_size)
+        self.hidden2log_var = nn.Linear(hidden_size, hidden_size)
         
         self.decoder = nn.Sequential(
             nn.Linear(hidden_size, 128), 
@@ -102,31 +102,35 @@ class VAE(pl.LightningModule):
         # Pass through encoder
         out = self.encoder(x)
         mu = self.hidden2mu(out)
-        sigma = self.hidden2sigma(out)
-        return mu, sigma
+        log_var = self.hidden2log_var(out)
+        return mu, log_var
 
     def decode(self, x):
         # Pass through encoder
         return self.decoder(x)
 
-    def reparametrize(self, mu, sigma):
+    def reparametrize(self, mu, log_var):
         # Reparametrization Trick
         # It outputs a sample of the dist.
-        # mu -> average | sigma -> std
-        # e -> Epsilon. Sample from the normal distribution, same shape as mu
-        e = torch.randn(size=(mu.size(0), mu.size(1))) 
-        e = e.type_as(mu) # To the same device
-        return mu + sigma*e
+        # mu -> average | log_var -> std
+        
+        #e = torch.randn(size=(mu.size(0), mu.size(1))) 
+        #e = e.type_as(mu) # To the same device
+
+        log_var = torch.exp(0.5*log_var)
+        z = torch.randn(size=(mu.size(0), mu.size(1))) # Epsilon, normal distribution
+        z = z.type_as(mu)
+        return mu + log_var*z
 
     def forward(self, x):
         # Pass through encoder
-        mu, sigma = self.encode(x)
+        mu, log_var = self.encode(x)
         # Reparametrization Trick
-        hidden = self.reparametrize(mu, sigma)
+        hidden = self.reparametrize(mu, log_var)
         # Pass through decoder
         output = self.decoder(hidden)
 
-        return mu, sigma, output
+        return mu, log_var, output
 
     def training_step(self, batch, batch_idx):
         x, weights = batch
@@ -136,7 +140,9 @@ class VAE(pl.LightningModule):
         # kl aparece para a distribuição nao ser mt diferente da normal
 
         # a loss é a loss de reconstrução mais a kl loss!
-        kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        #kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        kl_loss = (-0.5*(1+epsilon - mu**2 -
+                         torch.exp(epsilon)).sum(dim=1)).mean(dim=0)
         recon_loss_criterion = nn.MSELoss()
         recon_loss = recon_loss_criterion(x, x_out)
         # print(kl_loss.item(),recon_loss.item())
@@ -156,7 +162,9 @@ class VAE(pl.LightningModule):
         mu, epsilon, x_out = self.forward(x)
 
         # K-L Loss
-        kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        #kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        kl_loss = (-0.5*(1+epsilon - mu**2 -
+                         torch.exp(epsilon)).sum(dim=1)).mean(dim=0)
         # Weights on KL Loss
         kl_loss = (weights * kl_loss) / weights.sum()
         kl_loss = torch.mean(kl_loss, dtype=torch.float32)
@@ -186,18 +194,24 @@ class VAE(pl.LightningModule):
     # Functions for dataloading
     def train_dataloader(self):
         train_set = _dataset(self.dataset, type="train")
-        return DataLoader(train_set, batch_size=self.batch_size, num_workers=2)
+        return DataLoader(train_set, batch_size=self.batch_size, num_workers=6)
 
     def val_dataloader(self):
         val_set = _dataset(self.dataset, type="validation")
-        return DataLoader(val_set, batch_size=self.batch_size, num_workers=2)
+        return DataLoader(val_set, batch_size=self.batch_size, num_workers=6)
 
 
 
-
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 if __name__ == "__main__":
     trainer = Trainer(
-        fast_dev_run = True
+        fast_dev_run = True,
+        gpus=1,
+        auto_lr_find=True,
+        max_epochs=500,
+        #max_time=
+        callbacks=[EarlyStopping(monitor="val_loss", patience=50), ModelCheckpoint(dirpath="models", monitor="val_loss", mode="min")]
+
         )
     model = VAE(
     dataset = "bkg",
@@ -206,5 +220,5 @@ if __name__ == "__main__":
     alpha = 1, 
     lr = 0.001,
     )
-
+    #trainer.tune(model) 
     trainer.fit(model)

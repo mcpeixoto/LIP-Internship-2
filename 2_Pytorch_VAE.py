@@ -20,6 +20,7 @@ from sklearn.utils import shuffle
 class _dataset(Dataset): #
     def __init__(self, key, type, random_seed=42):
         # TODO: Improve efficiency/handle names
+        
         # Check if key is valid
         assert key in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid Key!"
 
@@ -45,9 +46,6 @@ class _dataset(Dataset): #
         self.weights = torch.from_numpy(data["weights"].to_numpy(dtype=np.float32))
 
         data.drop(["name", "weights"], axis=1, inplace=True)
-        
-        # In order to have std = 1 and mean = 0 TODO
-        data = (data-data.mean())/data.std()
 
         self.data = torch.from_numpy(data.to_numpy(dtype=np.float32))
         self.n_samples = data.shape[0]

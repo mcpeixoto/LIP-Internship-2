@@ -16,6 +16,8 @@ from typing import Optional
 from config import processed_data_path
 from sklearn.utils import shuffle
 
+# TODO: Add denoising criterion; Representation spartsity
+
 # Defining the dataset
 class _dataset(Dataset): #
     def __init__(self, key, type, random_seed=42):
@@ -225,7 +227,7 @@ if __name__ == "__main__":
     dataset = "bkg",
     hidden_size=5,
     batch_size = 1024,
-    alpha = 1, 
+    alpha = 10, 
     lr = 0.001,
     )
     #trainer.tune(model) 

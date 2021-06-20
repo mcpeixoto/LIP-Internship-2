@@ -19,6 +19,9 @@ from sklearn.utils import shuffle
 # Defining the dataset
 class _dataset(Dataset): #
     def __init__(self, key, type, random_seed=42):
+        # key -> 'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'
+        # type -> train, validation, test
+        
         # TODO: Improve efficiency/handle names
         
         # Check if key is valid
@@ -79,7 +82,7 @@ class VAE(pl.LightningModule):
         # Architecture
         self.encoder = nn.Sequential(
             nn.Linear(69, 128), 
-            nn.LeakyReLU(),
+            nn.LeakyReLU(), 
             nn.Linear(128, 128),
             nn.LeakyReLU(), 
             nn.Linear(128, hidden_size),
@@ -91,9 +94,9 @@ class VAE(pl.LightningModule):
         
         self.decoder = nn.Sequential(
             nn.Linear(hidden_size, 128), 
-            nn.LeakyReLU(),
+            nn.LeakyReLU(), 
             nn.Linear(128, 128),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(), 
             nn.Linear(128, 69), 
             nn.LeakyReLU(),
         )
@@ -118,7 +121,7 @@ class VAE(pl.LightningModule):
         #e = e.type_as(mu) # To the same device
 
         log_var = torch.exp(0.5*log_var)
-        z = torch.randn(size=(mu.size(0), mu.size(1))) # Epsilon, normal distribution
+        z = torch.randn(size=(mu.size(0), mu.size(1))) # log_var, normal distribution
         z = z.type_as(mu)
         return mu + log_var*z
 
@@ -134,37 +137,38 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, weights = batch
-        mu, epsilon, x_out = self.forward(x)
+        mu, log_var, x_out = self.forward(x)
 
         # kl loss é a loss da distribuição - disentangle auto encoders?
         # kl aparece para a distribuição nao ser mt diferente da normal
 
         # a loss é a loss de reconstrução mais a kl loss!
-        #kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
-        kl_loss = (-0.5*(1+epsilon - mu**2 -
-                         torch.exp(epsilon)).sum(dim=1)).mean(dim=0)
+        #kl_loss = (-0.5*(1+torch.log(log_var**2)-log_var**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        kl_loss = (-0.5*(1+log_var - mu**2 -
+                         torch.exp(log_var)).sum(dim=1)).mean(dim=0)
+
         recon_loss_criterion = nn.MSELoss()
         recon_loss = recon_loss_criterion(x, x_out)
         # print(kl_loss.item(),recon_loss.item())
+
         loss = recon_loss*self.alpha + kl_loss
 
         # Weights on final loss
         loss = (weights * loss) / weights.sum()
         loss = torch.mean(loss, dtype=torch.float32)
 
-        self.log('train_loss', loss, on_step=False,
-                 on_epoch=True, prog_bar=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, weights = batch
 
-        mu, epsilon, x_out = self.forward(x)
+        mu, log_var, x_out = self.forward(x)
 
         # K-L Loss
-        #kl_loss = (-0.5*(1+torch.log(epsilon**2)-epsilon**2 - mu**2).sum(dim=1)).mean(dim=0) 
-        kl_loss = (-0.5*(1+epsilon - mu**2 -
-                         torch.exp(epsilon)).sum(dim=1)).mean(dim=0)
+        #kl_loss = (-0.5*(1+torch.log(log_var**2)-log_var**2 - mu**2).sum(dim=1)).mean(dim=0) 
+        kl_loss = (-0.5*(1+log_var - mu**2 -
+                         torch.exp(log_var)).sum(dim=1)).mean(dim=0)
         # Weights on KL Loss
         kl_loss = (weights * kl_loss) / weights.sum()
         kl_loss = torch.mean(kl_loss, dtype=torch.float32)
@@ -203,14 +207,18 @@ class VAE(pl.LightningModule):
 
 
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+
 if __name__ == "__main__":
+    logger = TensorBoardLogger("board_logs")
     trainer = Trainer(
-        fast_dev_run = True,
+        # fast_dev_run = True,
         gpus=1,
-        auto_lr_find=True,
+        #auto_lr_find=True,
         max_epochs=500,
         #max_time=
-        callbacks=[EarlyStopping(monitor="val_loss", patience=50), ModelCheckpoint(dirpath="models", monitor="val_loss", mode="min")]
+        callbacks=[EarlyStopping(monitor="val_loss", patience=100), ModelCheckpoint(dirpath="models", monitor="val_loss", mode="min")],
+        logger=logger
 
         )
     model = VAE(

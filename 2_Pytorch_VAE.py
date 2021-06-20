@@ -225,10 +225,10 @@ if __name__ == "__main__":
         )
     model = VAE(
     dataset = "bkg",
-    hidden_size=5,
-    batch_size = 1024,
+    hidden_size=3,
+    batch_size = 2048,
     alpha = 10, 
-    lr = 0.001,
+    lr = 0.0001,
     )
     #trainer.tune(model) 
     trainer.fit(model)

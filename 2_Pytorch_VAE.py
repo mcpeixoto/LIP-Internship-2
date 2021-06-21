@@ -20,17 +20,17 @@ from sklearn.utils import shuffle
 
 # Defining the dataset
 class _dataset(Dataset): #
-    def __init__(self, key, type, random_seed=42):
-        # key -> 'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'
-        # type -> train, validation, test
+    def __init__(self, variant, category, random_seed=42):
+        # variant -> 'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'
+        # category -> train, validation, test
         
         # TODO: Improve efficiency/handle names
         
-        # Check if key is valid
-        assert key in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid Key!"
+        # Check if variant is valid
+        assert variant in {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}, "Invalid variant!"
 
-        # With specified key, get data
-        file = join(processed_data_path, key+".csv")
+        # With specified variant, get data
+        file = join(processed_data_path, variant+".csv")
         data = pd.read_csv(file, index_col=0)
 
         # Shuffle the dataframe
@@ -40,11 +40,11 @@ class _dataset(Dataset): #
         # train, validation and test
         train, validation, test = np.split(data.sample(frac=1), [int(len(data)*(1/3)), int(len(data)*(2/3))])
         
-        if type == "train":
+        if category == "train":
             data = train
-        elif type == "validation":
+        elif category == "validation":
             data = validation
-        elif type == "test":
+        elif category == "test":
             data = test
         
         # This data we want on a seperate variable
@@ -67,7 +67,7 @@ class VAE(pl.LightningModule):
     def __init__(self, dataset, batch_size, hidden_size, alpha, lr):
         """
         Args:
-        - > key e {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}; it's the type of data
+        - > variant e {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}; it's the type of data
         - > hidden_size : Latent Hidden Size
         - > alpha : Hyperparameter to control the importance of
         reconstruction loss vs KL-Divergence Loss
@@ -77,6 +77,7 @@ class VAE(pl.LightningModule):
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size
+        self.hparams.batch_size = batch_size
         self.hidden_size = hidden_size
         self.lr = lr
         self.alpha = alpha
@@ -135,11 +136,11 @@ class VAE(pl.LightningModule):
         # Pass through decoder
         output = self.decoder(hidden)
 
-        return mu, log_var, output
+        return mu, log_var, output, hidden
 
     def training_step(self, batch, batch_idx):
         x, weights = batch
-        mu, log_var, x_out = self.forward(x)
+        mu, log_var, x_out, _ = self.forward(x)
 
         # kl loss é a loss da distribuição - disentangle auto encoders?
         # kl aparece para a distribuição nao ser mt diferente da normal
@@ -165,7 +166,7 @@ class VAE(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, weights = batch
 
-        mu, log_var, x_out = self.forward(x)
+        mu, log_var, x_out, _ = self.forward(x)
 
         # K-L Loss
         #kl_loss = (-0.5*(1+torch.log(log_var**2)-log_var**2 - mu**2).sum(dim=1)).mean(dim=0) 
@@ -191,6 +192,19 @@ class VAE(pl.LightningModule):
 
         return x_out, loss
 
+    def test_step(self, batch):
+        x, _ = batch
+        mu, log_var, x_out, hidden = self.forward(x)
+
+        # Loss
+        kl_loss = (-0.5*(1+log_var - mu**2 -
+                         torch.exp(log_var)).sum(dim=1)).mean(dim=0)
+        recon_loss_criterion = nn.MSELoss()
+        recon_loss = recon_loss_criterion(x, x_out)
+        loss = recon_loss*self.alpha + kl_loss
+
+        return hidden
+
     def validation_epoch_end(self, outputs):
         pass
 
@@ -199,12 +213,16 @@ class VAE(pl.LightningModule):
 
     # Functions for dataloading
     def train_dataloader(self):
-        train_set = _dataset(self.dataset, type="train")
-        return DataLoader(train_set, batch_size=self.batch_size, num_workers=6)
+        train_set = _dataset(self.dataset, category="train")
+        return DataLoader(train_set, batch_size=self.batch_size, num_workers=12)
 
     def val_dataloader(self):
-        val_set = _dataset(self.dataset, type="validation")
-        return DataLoader(val_set, batch_size=self.batch_size, num_workers=6)
+        val_set = _dataset(self.dataset, category="validation")
+        return DataLoader(val_set, batch_size=self.batch_size, num_workers=12)
+
+    def test_dataloader(self):
+        val_set = _dataset(self.dataset, category="test")
+        return DataLoader(val_set, batch_size=self.batch_size, num_workers=12)
 
 
 
@@ -220,12 +238,12 @@ if __name__ == "__main__":
         max_epochs=500,
         #max_time=
         callbacks=[EarlyStopping(monitor="val_loss", patience=100), ModelCheckpoint(dirpath="models", monitor="val_loss", mode="min")],
-        logger=logger
-
+        logger=logger,
+        precision=16
         )
     model = VAE(
     dataset = "bkg",
-    hidden_size=3,
+    hidden_size=2,
     batch_size = 2048,
     alpha = 10, 
     lr = 0.0001,

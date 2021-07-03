@@ -9,4 +9,3 @@ env_estagio_lip_2
 models/
 lightning_logs/
 r2-optimization.db
-study_r2.pkl

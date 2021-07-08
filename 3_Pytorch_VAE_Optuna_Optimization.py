@@ -86,7 +86,7 @@ class _dataset(Dataset): #
 
 
     def __getitem__(self, index):
-        return torch.from_numpy(self.data.iloc[index].to_numpy(dtype=np.float32)), torch.from_numpy(np.array([self.weights.iloc[index]]))
+        return torch.from_numpy(self.data.iloc[index].to_numpy(dtype=np.float16)), torch.from_numpy(np.array([self.weights.iloc[index]]))
         #return tuple(self.data.iloc[index], self.weights.iloc[index])
 
     def __len__(self):
@@ -100,7 +100,7 @@ class _dataset(Dataset): #
 
 # %%
 class VAE(pl.LightningModule):
-    def __init__(self, trial, batch_size, dataset):
+    def __init__(self, trial, dataset, batch_size=1024*4):
         """
         Args:
         - > variant e {'VLQ_HG', 'VLQ_SEM_HG', 'bkg', 'FCNC'}; it's the type of data
@@ -111,9 +111,10 @@ class VAE(pl.LightningModule):
         - > dataset : Dataset to used
         """
         super().__init__()
+
+        self.save_hyperparameters = True
         self.dataset = dataset
         self.batch_size = batch_size
-        self.hparams.batch_size = batch_size
         self.hidden_size = trial.suggest_int("hidden_size", 2, 40)
         hidden_size = self.hidden_size # yes I am lazy
         self.lr = trial.suggest_float("lr", 1e-8, 1e-2, log=True)
@@ -121,12 +122,12 @@ class VAE(pl.LightningModule):
         self.best_score = None
         ## Architecture
         # Encoder
-        n_layers_encoder = trial.suggest_int("n_layers_encoder", 1, 4)
+        n_layers_encoder = trial.suggest_int("n_layers_encoder", 1, 5)
         layers = []
 
         in_features = 75
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 256)
+            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 512)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -142,12 +143,12 @@ class VAE(pl.LightningModule):
         self.hidden2log_var = nn.Linear(hidden_size, hidden_size)
         
         # Decoder
-        n_layers_encoder = trial.suggest_int("n_layers_decoder", 1, 4)
+        n_layers_encoder = trial.suggest_int("n_layers_decoder", 1, 5)
         layers = []
 
         in_features = hidden_size
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 256)
+            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 512)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -233,33 +234,33 @@ class VAE(pl.LightningModule):
         return  mu, log_var, x_out, hidden
 
     def validation_step(self, batch, batch_idx):
-        with torch.no_grad():
-            x, weights = batch
-            # Pass
-            _, _, output, _ = self.forward(x)
+        #with torch.no_grad():
+        x, weights = batch
+        # Pass
+        _, _, output, _ = self.forward(x)
 
-            x = x.cpu().numpy()
-            output = output.cpu().numpy()
+        x = x.cpu().numpy()
+        output = output.cpu().numpy()
 
-            #print("Input", np.isnan(x).any())
-            #print("Output", np.isnan(output).any())
+        #print("Input", np.isnan(x).any())
+        #print("Output", np.isnan(output).any())
 
 
-            try:
-                objective_score = r2_score(x,output)
-            except:
-                print("\n[-] Erro! ")
-                # objective_score = np.inf
-                raise KeyboardInterrupt
+        try:
+            objective_score = r2_score(x,output)
+        except:
+            print("\n[-] Erro! ")
+            # objective_score = np.inf
+            raise KeyboardInterrupt
 
-            self.log('objective_score', objective_score, prog_bar=True)
+        self.log('objective_score', objective_score, prog_bar=True)
 
-            if self.best_score is None:
-                self.best_score = objective_score
-            elif objective_score > self.best_score:
-                self.best_score = objective_score
-            else:
-                pass
+        if self.best_score is None:
+            self.best_score = objective_score
+        elif objective_score > self.best_score:
+            self.best_score = objective_score
+        else:
+            pass
 
 
     def configure_optimizers(self):
@@ -287,7 +288,7 @@ def objective(trial):
 
     trainer = pl.Trainer(
         #move_metrics_to_cpu=True,
-        auto_scale_batch_size='binsearch',
+        auto_scale_batch_size=True,
         gpus=1,
         logger=logger,
         max_epochs=max_epochs,
@@ -298,7 +299,7 @@ def objective(trial):
             ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="max")]
     )
 
-    model = VAE(trial, dataset = "bkg", batch_size=1)
+    model = VAE(trial, dataset = "bkg")#, batch_size=4048)
 
     # Find batch size
     #trainer.tune(model)
@@ -318,7 +319,7 @@ def objective(trial):
 # ## Training
 
 study = optuna.create_study(direction="maximize", study_name="Optimizing the VAE with r2", storage="sqlite:///r2-optimization.db", load_if_exists=True)
-study.optimize(objective, timeout=10*60*60)#n_trials=200)
+study.optimize(objective, timeout=7*60*60)#n_trials=200)
 
 print("Number of finished trials: {}".format(len(study.trials)))
 

@@ -9,3 +9,4 @@ env_estagio_lip_2
 models/
 lightning_logs/
 settings*
+optuna.db

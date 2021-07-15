@@ -23,12 +23,12 @@ from optuna.integration import PyTorchLightningPruningCallback
 from scipy.stats import wasserstein_distance 
 import joblib
 import optuna
-#get_ipython().run_line_magic('matplotlib', 'inline')
 from matplotlib import pyplot as plt
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import r2_score
 import threading, concurrent
+import glob
 
 class _dataset(Dataset): #
     def __init__(self, variant, category, random_seed=42):
@@ -44,7 +44,12 @@ class _dataset(Dataset): #
         assert category in {'train', 'validation', 'test', 'all'}, "Invalid category!"
 
         # With specified variant, get data
-        self.data = pd.read_hdf(join(processed_data_path, "data.h5"), key=variant, index_col=0)
+        if variant == "bkg":
+            self.data = pd.read_hdf(join(processed_data_path, "bkg.h5"), index_col=0)
+        elif variant == "signal":
+            self.data = pd.concat(
+                [pd.read_hdf(path, index_col=0) for path in glob.glob(join(processed_data_path, "[!bkg]*"))]
+            )
 
         # Shuffle the dataframe
         self.data = self.data.sample(frac=1, random_state=random_seed).reset_index(drop=True)
@@ -143,17 +148,19 @@ class VAE(pl.LightningModule):
         self.batch_size = batch_size
         self.hidden_size = trial.suggest_int("hidden_size", 2, 40)
         hidden_size = self.hidden_size # yes I am lazy
-        self.lr = trial.suggest_float("lr", 1e-8, 1e-2, log=True)
-        self.alpha = trial.suggest_int("alpha", 1, 3000)
+        self.lr = trial.suggest_float("lr", 1e-10, 1e-2, log=True)
+        self.alpha = trial.suggest_int("alpha", 1, 10000, step=5)
         self.best_score = None
-        ## Architecture
-        # Encoder
-        n_layers_encoder = trial.suggest_int("n_layers_encoder", 1, 5)
+
+
+        #### Architecture
+        #-> Encoder
+        n_layers_encoder = trial.suggest_int("n_layers_encoder", 1, 20)
         layers = []
 
-        in_features = 75
+        in_features = 69
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 512)
+            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 10, 500, step=10)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -168,27 +175,24 @@ class VAE(pl.LightningModule):
         self.hidden2mu = nn.Linear(hidden_size, hidden_size)
         self.hidden2log_var = nn.Linear(hidden_size, hidden_size)
         
-        # Decoder
-        n_layers_encoder = trial.suggest_int("n_layers_decoder", 1, 5)
+        #-> Decoder
+        n_layers_encoder = trial.suggest_int("n_layers_decoder", 1, 20)
         layers = []
 
         in_features = hidden_size
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 512)
+            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 500, step=10)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
             in_features = out_features
 
         # Ultima layer
-        layers.append(nn.Linear(in_features, 75))
+        layers.append(nn.Linear(in_features, 69))
         # layers.append(nn.LeakyReLU())
 
         self.decoder = nn.Sequential(*layers)
 
-        ## Load bkg data for
-        # being used at self.on_epoch_end
-        #self.bkg = _dataset(category='test', variant='bkg', tensor=False).all_data().to_numpy()
 
     def encode(self, x):
         # Pass through encoder
@@ -310,8 +314,8 @@ def objective(trial):
 
     logger = TensorBoardLogger("lightning_logs", name=name)
 
-    max_epochs=50#trial.suggest_int("max_epochs", 50, 100, step=5)
-    patience=20#trial.suggest_int("patience", 10, 30, step=5)
+    max_epochs=300 #trial.suggest_int("max_epochs", 50, 500, step=10)
+    patience=50 #trial.suggest_int("patience", 10, 200, step=10)
 
     trainer = pl.Trainer(
         #move_metrics_to_cpu=True,
@@ -320,7 +324,7 @@ def objective(trial):
         logger=logger,
         max_epochs=max_epochs,
         precision=16,
-        check_val_every_n_epoch=10,
+        check_val_every_n_epoch=5,
         callbacks=[
             EarlyStopping(monitor="objective_score", patience=patience, mode="min"),
             ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="min")]
@@ -338,8 +342,11 @@ def objective(trial):
 # %% [markdown]
 # ## Training
 
-study = optuna.create_study(direction="minimize", study_name="Optimizing the VAE with r2", storage="sqlite:///wd-sample_vs_data-optimization.db", load_if_exists=True)
-# study.optimize(objective, timeout=int(7*60*60))#n_trials=200)
+# Study names:
+# - Optimizing the VAE with WD - BKG vs Random Sampling
+
+study = optuna.create_study(direction="minimize", study_name="Optimizing the VAE with WD - BKG vs Random Sampling", storage="sqlite:///optimization.db", load_if_exists=True)
+study.optimize(objective, n_trials=100)
 
 print("Number of finished trials: {}".format(len(study.trials)))
 
@@ -354,7 +361,7 @@ for key, value in trial.params.items():
 
 print(" TRIAL NUMBER:", trial.number)
 
-
+"""
 
 params = study.best_trial.params
 
@@ -384,3 +391,4 @@ trainer = pl.Trainer(
 
 model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
 trainer.fit(model)
+"""

@@ -8,4 +8,4 @@ data.h5
 env_estagio_lip_2
 models/
 lightning_logs/
-r2-optimization.db
+settings*

@@ -123,26 +123,6 @@ def compare_distributions_binned(x1, w1, x2, w2, bins=500):
                                         )
     return total_WD / hidden_size
 
-    """
-    processes = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
-         for i in range(hidden_size):
-            processes.append(executor.submit(compare_distributions_binned_aux, 
-                                        x1[:, i], 
-                                        w1[i]*np.ones(batch_size), 
-                                        x2[:, i], 
-                                        w2[i]*np.ones(batch_size),
-                                        bins
-                                        ))
-        
-    # Wait for completion
-    concurrent.futures.wait(processes, timeout=None, return_when=concurrent.futures.ALL_COMPLETED)
-    resultados = [x.result() for x  in list(concurrent.futures.as_completed(processes))]
-
-
-    total_WD = sum(resultados) / batch_size
-    return total_WD
-    """
 
 # %%
 class VAE(pl.LightningModule):

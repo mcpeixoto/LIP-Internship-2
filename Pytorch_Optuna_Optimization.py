@@ -314,8 +314,8 @@ def objective(trial):
 
     logger = TensorBoardLogger("lightning_logs", name=name)
 
-    max_epochs=300 #trial.suggest_int("max_epochs", 50, 500, step=10)
-    patience=50 #trial.suggest_int("patience", 10, 200, step=10)
+    max_epochs=100 #trial.suggest_int("max_epochs", 50, 500, step=10)
+    patience=10 #trial.suggest_int("patience", 10, 200, step=10)
 
     trainer = pl.Trainer(
         #move_metrics_to_cpu=True,
@@ -324,7 +324,7 @@ def objective(trial):
         logger=logger,
         max_epochs=max_epochs,
         precision=16,
-        check_val_every_n_epoch=5,
+        check_val_every_n_epoch=2,
         callbacks=[
             EarlyStopping(monitor="objective_score", patience=patience, mode="min"),
             ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="min")]
@@ -346,7 +346,7 @@ def objective(trial):
 # - Optimizing the VAE with WD - BKG vs Random Sampling
 
 study = optuna.create_study(direction="minimize", study_name="Optimizing the VAE with WD - BKG vs Random Sampling", storage="sqlite:///optimization.db", load_if_exists=True)
-study.optimize(objective, n_trials=100)
+study.optimize(objective, n_trials=50, timeout=)
 
 print("Number of finished trials: {}".format(len(study.trials)))
 

@@ -265,6 +265,8 @@ class VAE(pl.LightningModule):
         return  mu, log_var, x_out, hidden
 
     def validation_step(self, batch, batch_idx):
+        """
+        WD
         #with torch.no_grad():
         x, weights = batch
         # Pass
@@ -283,6 +285,24 @@ class VAE(pl.LightningModule):
         except:
             print("\n[-] Erro! ")
             raise KeyboardInterrupt
+        """
+        #with torch.no_grad():
+        x, weights = batch
+        # Pass
+        _, _, output, _ = self.forward(x)
+
+        x = x.cpu().numpy()
+        output = output.cpu().numpy()
+
+        #print("Input", np.isnan(x).any())
+        #print("Output", np.isnan(output).any())
+
+
+        try:
+            objective_score = r2_score(x,output)
+        except:
+            print("\n[-] Erro! ")
+            raise KeyboardInterrupt
 
         self.log('objective_score', objective_score, prog_bar=True)
 
@@ -292,6 +312,7 @@ class VAE(pl.LightningModule):
             self.best_score = objective_score
         else:
             pass
+
 
 
     def configure_optimizers(self):
@@ -310,7 +331,8 @@ class VAE(pl.LightningModule):
 # %%
 def objective(trial):
 
-    name = "wd-sample_vs_data_trial_{}".format(trial.number)
+    #name = "wd-sample_vs_data_trial_{}".format(trial.number)
+    name = "re-reconstruction_vs_data_trial_{}".format(trial.number)
 
     logger = TensorBoardLogger("lightning_logs", name=name)
 
@@ -326,8 +348,8 @@ def objective(trial):
         precision=16,
         check_val_every_n_epoch=2,
         callbacks=[
-            EarlyStopping(monitor="objective_score", patience=patience, mode="min"),
-            ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="min")]
+            EarlyStopping(monitor="objective_score", patience=patience, mode="max"),
+            ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="max")]
     )
 
     model = VAE(trial, dataset = "bkg", batch_size=512)#, batch_size=4048)
@@ -344,9 +366,10 @@ def objective(trial):
 
 # Study names:
 # - Optimizing the VAE with WD - BKG vs Random Sampling
+# - Optimizing the VAE with R2 - BKG vs Reconstruction
 
-study = optuna.create_study(direction="minimize", study_name="Optimizing the VAE with WD - BKG vs Random Sampling", storage="sqlite:///optimization.db", load_if_exists=True)
-study.optimize(objective, n_trials=50, timeout=)
+study = optuna.create_study(direction="maximize", study_name="Optimizing the VAE with R2 - BKG vs Reconstruction", storage="sqlite:///optimization.db", load_if_exists=True)
+study.optimize(objective, n_trials=11)
 
 print("Number of finished trials: {}".format(len(study.trials)))
 

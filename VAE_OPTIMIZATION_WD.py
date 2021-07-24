@@ -85,15 +85,13 @@ class _dataset(Dataset): #
         if self.data.isnull().values.any():
             print("WARNING! DATA HAS NAN")
 
-        # Everything to tensors
-        
-        #self.weights = torch.from_numpy(self.weights.to_numpy(dtype=np.float16))
-        #self.data = torch.from_numpy(self.data.to_numpy(dtype=np.float16))
+    def get_columns(self):
+        return self.data.columns
 
 
     def __getitem__(self, index):
-        return torch.from_numpy(self.data.iloc[index].to_numpy(dtype=np.float16)), torch.from_numpy(np.array([self.weights.iloc[index]]))
-        #return tuple(self.data.iloc[index], self.weights.iloc[index])
+        return torch.from_numpy(self.data.iloc[index].to_numpy(dtype=np.float16)), \
+                torch.from_numpy(np.array([self.weights.iloc[index]]))
 
     def __len__(self):
         return self.n_samples
@@ -108,6 +106,40 @@ class _dataset(Dataset): #
         except:
             return self.data
 
+from statsmodels.distributions.empirical_distribution import StepFunction
+from scipy.stats import wasserstein_distance
+import numpy as np
+
+class wECDF(StepFunction):
+    def __init__(self, x, w, side="right"):
+        x = np.array(x, copy=True)
+        w = np.array(w, copy=True)
+        sorted_indices = np.argsort(x)
+        x = x[sorted_indices]
+        y = np.cumsum(w[sorted_indices])
+        super(wECDF, self).__init__(x, y, side=side, sorted=True)
+
+def compare_continuous(x1, w1, x2, w2):
+    w1 = w1 / w1.sum()
+    w2 = w2 / w2.sum()
+    wecdf1 = wECDF(x1, w1)
+    wecdf2 = wECDF(np.clip(x2, x1.min(), x1.max()), w2)
+    u1 = wecdf1.y
+    u2 = wecdf2(wecdf1.x)
+    return wasserstein_distance(u1, u2)
+
+
+def compare_integer(x1, w1, x2, w2):
+    d = np.diff(np.unique(x1)).min()
+    left_of_first_bin = x1.min() - float(d) / 2
+    right_of_last_bin = x1.max() + float(d) / 2
+    bins = np.arange(left_of_first_bin, right_of_last_bin + d, d)
+    h1, _ = np.histogram(x1, weights=w1, bins=bins)
+    h2, _ = np.histogram(np.clip(x2, x1.min(), x1.max()), weights=w2, bins=bins)
+    u1 = np.cumsum(h1) / h1.sum()
+    u2 = np.cumsum(h2) / h2.sum()
+    return wasserstein_distance(u1, u2)
+"""
 
 # %%
 def compare_distributions_binned_aux(x1, w1, x2, w2, bins=1000):
@@ -121,13 +153,13 @@ def compare_distributions_binned_aux(x1, w1, x2, w2, bins=1000):
 
 def compare_distributions_binned(x1, w1, x2, w2, bins=500):
     
-    hidden_size = x1.shape[1]
     batch_size = x1.shape[0]
+    features_size = x1.shape[1]
 
 
     total_WD=0
 
-    for i in range(hidden_size):
+    for i in range(features_size):
            total_WD += compare_distributions_binned_aux(
                                         x1[:, i], 
                                         w1[i]*np.ones(batch_size), 
@@ -135,9 +167,9 @@ def compare_distributions_binned(x1, w1, x2, w2, bins=500):
                                         w2[i]*np.ones(batch_size),
                                         bins
                                         )
-    return total_WD / hidden_size
+    return total_WD / features_size
 
-
+"""
 # %%
 class VAE(pl.LightningModule):
     def __init__(self, trial, dataset, batch_size):
@@ -157,7 +189,7 @@ class VAE(pl.LightningModule):
         self.batch_size = batch_size
         self.hidden_size = trial.suggest_int("hidden_size", 2, 40)
         hidden_size = self.hidden_size # yes I am lazy
-        self.lr = trial.suggest_float("lr", 1e-10, 1e-4, log=True)
+        self.lr = trial.suggest_float("lr", 1e-10, 1e-2, log=True)
         self.alpha = trial.suggest_int("alpha", 1, 10000, step=5)
         self.best_score = None
 
@@ -274,26 +306,34 @@ class VAE(pl.LightningModule):
         return  mu, log_var, x_out, hidden
 
     def validation_step(self, batch, batch_idx):
-        
-        # WD
-        #with torch.no_grad():
+                  
         x, weights = batch
-        # Pass
-        #_, _, output, _ = self.forward(x)
 
         x = x.cpu().numpy()
-        weights = weights.cpu().numpy()
-        #output = output.cpu().numpy()
+        weights = weights.cpu().numpy().reshape(-1)
 
         ## RANDOM SAMPLING
-        sample = self.decode(torch.rand(x.shape).cuda()).detach().cpu().numpy()
+        #sample = self.decode(torch.rand(x.shape).cuda()).detach().cpu().numpy()
+        sample = self.decode(torch.rand(x.shape[0], self.hidden_size).cuda()).detach().cpu().numpy()
 
-        try:
-            #objective_score = r2_score(x,output)
-            objective_score = compare_distributions_binned(x, weights, sample, np.ones(weights.shape), bins=1000)
-        except:
-            print("\n[-] Erro! ")
-            raise KeyboardInterrupt
+        assert sample.shape == x.shape, "Shapes are not the same!"
+        assert x.shape[1] == len(self.validation_columns), "Validation columns não corresponde ao numero de features!"
+
+        # Para cada feature
+        objective_score = 0
+        for idx in range(x.shape[1]):
+            feature = self.validation_columns[idx]
+            if "Tag" in feature or "Multi" in feature:
+                #print("Feature", feature, "é inteiro")
+                objective_score += compare_integer(x[:, idx], weights, sample[:, idx], np.ones(weights.shape))
+            else:
+                #print("Feature", feature, "é continuo")
+                objective_score += compare_continuous(x[:, idx], weights, sample[:, idx], np.ones(weights.shape))
+
+
+        if np.isnan(objective_score):
+            print("objective_score is nan!")
+            raise  KeyboardInterrupt
   
         self.log('objective_score', objective_score, prog_bar=True)
 
@@ -316,6 +356,7 @@ class VAE(pl.LightningModule):
 
     def val_dataloader(self):
         val_set = _dataset(self.dataset, category='test')
+        self.validation_columns = val_set.get_columns()
         return DataLoader(val_set, batch_size=self.batch_size*4, num_workers=12)
 
 
@@ -386,7 +427,7 @@ if __name__ == "__main__":
 
 
     # Name of the model
-    name = f"CustomTrain_WD-Data_vs_Sampling_trial_{trial.number}"
+    name = f"TestCustomTrain_WD-Data_vs_Sampling_trial_{trial.number}"
     print("Name:", name)
     print(params)
 

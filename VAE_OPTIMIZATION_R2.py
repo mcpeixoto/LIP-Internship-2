@@ -301,6 +301,7 @@ class VAE(pl.LightningModule):
         _, _, output, _ = self.forward(x)
 
         x = x.cpu().numpy()
+        weights = weights.cpu().numpy()
         output = output.cpu().numpy()
 
         #print("Input", np.isnan(x).any())
@@ -308,7 +309,7 @@ class VAE(pl.LightningModule):
 
 
         try:
-            objective_score = r2_score(x,output)
+            objective_score = r2_score(x, output, sample_weight=weights)
         except:
             print("\n[-] Erro! ")
             raise KeyboardInterrupt
@@ -341,7 +342,7 @@ class VAE(pl.LightningModule):
 def objective(trial):
 
     #name = "wd-sample_vs_data_trial_{}".format(trial.number)
-    name = "re-reconstruction_vs_data_trial_{}".format(trial.number)
+    name = "r2-reconstruction_vs_data_trial_{}".format(trial.number)
 
     logger = TensorBoardLogger("lightning_logs", name=name)
 
@@ -355,7 +356,7 @@ def objective(trial):
         logger=logger,
         max_epochs=max_epochs,
         precision=16,
-        check_val_every_n_epoch=2,
+        check_val_every_n_epoch=1,
         callbacks=[
             EarlyStopping(monitor="objective_score", patience=patience, mode="max"),
             ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="max")]
@@ -380,7 +381,7 @@ def objective(trial):
 study = optuna.create_study(direction="maximize", study_name="Optimizing the VAE with R2 - BKG vs Reconstruction", storage="sqlite:///optimization.db", load_if_exists=True)
 
 if __name__ == "__main__":
-    #study.optimize(objective, n_trials=50)
+    #study.optimize(objective, n_trials=106)
 
 
 
@@ -423,12 +424,17 @@ if __name__ == "__main__":
                 ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="max")]
         )
 
-    #model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
-    name = "re-reconstruction_vs_data_trial_{}".format(trial.number)
+    model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
+    
+    trainer.fit(model)
+
+
+"""
+name = "re-reconstruction_vs_data_trial_{}".format(trial.number)
     model = VAE.load_from_checkpoint(
                                     join("models", name + ".ckpt"),
                                     trial = optuna.trial.FixedTrial(study.best_trial.params), 
                                     dataset = "bkg", 
                                     batch_size=512
                                 )
-    trainer.fit(model)
+"""

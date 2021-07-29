@@ -339,11 +339,10 @@ class VAE(pl.LightningModule):
 
         if self.best_score is None:
             self.best_score = objective_score
-        elif objective_score > self.best_score:
+        elif objective_score < self.best_score:
             self.best_score = objective_score
         else:
             pass
-
 
 
     def configure_optimizers(self):
@@ -378,7 +377,7 @@ def objective(trial):
         logger=logger,
         max_epochs=max_epochs,
         precision=16,
-        check_val_every_n_epoch=2,
+        check_val_every_n_epoch=1,
         callbacks=[
             EarlyStopping(monitor="objective_score", patience=patience, mode="min"),
             ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="min")]
@@ -403,8 +402,9 @@ def objective(trial):
 study = optuna.create_study(direction="minimize", study_name="Optimizing the VAE with WD - BKG vs Random Sampling", storage="sqlite:///optimization.db", load_if_exists=True)
 
 if __name__ == "__main__":
-    #study.optimize(objective, n_trials=50)
-
+    #study.optimize(objective, n_trials=22)
+    
+    
     print("Number of finished trials: {}".format(len(study.trials)))
 
     print("Best trial:")
@@ -424,10 +424,11 @@ if __name__ == "__main__":
     #params['hidden_size'] = 16
     params['max_epochs'] = 1000
     params['patience'] = 200
+    params['lr'] = 0.00001
 
 
     # Name of the model
-    name = f"TestCustomTrain_WD-Data_vs_Sampling_trial_{trial.number}"
+    name = f"CustomTrain_WD-Data_vs_Sampling_trial_{trial.number}"
     print("Name:", name)
     print(params)
 
@@ -444,13 +445,7 @@ if __name__ == "__main__":
                 ModelCheckpoint(dirpath="models", filename=name, monitor="objective_score", mode="min")]
         )
 
-    # model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
-    name = "wd-sample_vs_data_trial_{}".format(trial.number)
-    model = VAE.load_from_checkpoint(
-                                    join("models", name + ".ckpt"),
-                                    trial = optuna.trial.FixedTrial(study.best_trial.params), 
-                                    dataset = "bkg", 
-                                    batch_size=512
-    )
+    model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
 
     trainer.fit(model)
+    

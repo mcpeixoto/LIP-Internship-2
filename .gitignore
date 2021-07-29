@@ -10,3 +10,4 @@ models/
 lightning_logs/
 settings*
 optuna.db
+old*

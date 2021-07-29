@@ -11,3 +11,4 @@ lightning_logs/
 settings*
 optuna.db
 old*
+paper_herwig/data

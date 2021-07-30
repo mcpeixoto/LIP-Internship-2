@@ -381,10 +381,10 @@ def objective(trial):
 study = optuna.create_study(direction="maximize", study_name="Optimizing the VAE with R2 - BKG vs Reconstruction", storage="sqlite:///optimization.db", load_if_exists=True)
 
 if __name__ == "__main__":
-    #study.optimize(objective, n_trials=106)
+    study.optimize(objective, n_trials=100)
 
 
-
+    """
     print("Number of finished trials: {}".format(len(study.trials)))
 
     print("Best trial:")
@@ -428,13 +428,4 @@ if __name__ == "__main__":
     
     trainer.fit(model)
 
-
-"""
-name = "re-reconstruction_vs_data_trial_{}".format(trial.number)
-    model = VAE.load_from_checkpoint(
-                                    join("models", name + ".ckpt"),
-                                    trial = optuna.trial.FixedTrial(study.best_trial.params), 
-                                    dataset = "bkg", 
-                                    batch_size=512
-                                )
 """

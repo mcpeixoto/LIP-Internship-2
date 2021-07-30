@@ -12,3 +12,5 @@ settings*
 optuna.db
 old*
 paper_herwig/data
+non_zeros/data
+non_zeros_cart/data

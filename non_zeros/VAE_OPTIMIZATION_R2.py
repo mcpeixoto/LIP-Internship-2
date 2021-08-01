@@ -6,9 +6,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import random
 from torch.utils.data.dataset import TensorDataset
-import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
-from torchvision.utils import save_image
 from torch.optim import Adam
 from pytorch_lightning import Trainer
 import os
@@ -167,7 +165,7 @@ class VAE(pl.LightningModule):
         n_layers_encoder = trial.suggest_int("n_layers_encoder", 1, 20)
         layers = []
 
-        in_features = 69
+        in_features = 47
         for i in range(n_layers_encoder):
             out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 10, 500, step=10)
             layers.append(nn.Linear(in_features, out_features))
@@ -197,7 +195,7 @@ class VAE(pl.LightningModule):
             in_features = out_features
 
         # Ultima layer
-        layers.append(nn.Linear(in_features, 69))
+        layers.append(nn.Linear(in_features, 47))
         # layers.append(nn.LeakyReLU())
 
         self.decoder = nn.Sequential(*layers)
@@ -331,11 +329,11 @@ class VAE(pl.LightningModule):
     # Functions for dataloading
     def train_dataloader(self):
         train_set = _dataset(self.dataset, category="train")
-        return DataLoader(train_set, batch_size=self.batch_size, num_workers=12)
+        return DataLoader(train_set, batch_size=self.batch_size, num_workers=10)
 
     def val_dataloader(self):
         val_set = _dataset(self.dataset, category='test')
-        return DataLoader(val_set, batch_size=self.batch_size*4, num_workers=12)
+        return DataLoader(val_set, batch_size=self.batch_size*4, num_workers=10)
 
 
 # %%
@@ -381,10 +379,10 @@ def objective(trial):
 study = optuna.create_study(direction="maximize", study_name="Optimizing the VAE with R2 - BKG vs Reconstruction", storage="sqlite:///optimization.db", load_if_exists=True)
 
 if __name__ == "__main__":
-    study.optimize(objective, n_trials=100)
+    #study.optimize(objective, n_trials=78)
 
 
-    """
+
     print("Number of finished trials: {}".format(len(study.trials)))
 
     print("Best trial:")
@@ -427,5 +425,3 @@ if __name__ == "__main__":
     model = VAE(optuna.trial.FixedTrial(params), dataset = "bkg", batch_size=512)
     
     trainer.fit(model)
-
-"""

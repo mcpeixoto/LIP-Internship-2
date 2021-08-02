@@ -238,8 +238,7 @@ class VAE(pl.LightningModule):
         mu, log_var, x_out, _ = self.forward(x)
 
         # Losses
-        kl_loss = (-0.5*(1+log_var - mu**2 -
-                         torch.exp(log_var)).sum(dim=1)).mean(dim=0)
+        kl_loss = (-0.5*(1+log_var - mu**2 -torch.exp(log_var)).sum(dim=1)).mean(dim=0)
 
         recon_loss_criterion = nn.MSELoss()
         recon_loss = recon_loss_criterion(x, x_out)

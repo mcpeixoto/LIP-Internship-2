@@ -137,37 +137,7 @@ def compare_integer(x1, w1, x2, w2):
     u1 = np.cumsum(h1) / h1.sum()
     u2 = np.cumsum(h2) / h2.sum()
     return wasserstein_distance(u1, u2)
-"""
 
-# %%
-def compare_distributions_binned_aux(x1, w1, x2, w2, bins=1000):
-    EPS = np.finfo(float).eps
-    h_init, b = np.histogram(x1, bins=bins, weights=w1)
-    dists = [i for i in range(len(h_init))]
-    h_gene, _ = np.histogram(np.clip(x2, x1.min(), x1.max()), bins=b, weights=w2)
-    wd = wasserstein_distance(dists, dists, h_init + EPS, h_gene + EPS)
-    return wd
-
-
-def compare_distributions_binned(x1, w1, x2, w2, bins=500):
-    
-    batch_size = x1.shape[0]
-    features_size = x1.shape[1]
-
-
-    total_WD=0
-
-    for i in range(features_size):
-           total_WD += compare_distributions_binned_aux(
-                                        x1[:, i], 
-                                        w1[i]*np.ones(batch_size), 
-                                        x2[:, i], 
-                                        w2[i]*np.ones(batch_size),
-                                        bins
-                                        )
-    return total_WD / features_size
-
-"""
 # %%
 class VAE(pl.LightningModule):
     def __init__(self, trial, dataset, batch_size):

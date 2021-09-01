@@ -191,7 +191,7 @@ class VAE(pl.LightningModule):
         self.hidden_size = zdim 
         hidden_size = self.hidden_size # yes I am lazy
         self.lr = trial.suggest_float("lr", 1e-10, 1e-2, log=True)
-        self.alpha = trial.suggest_int("alpha", 1, 10000, step=5)
+        self.alpha = trial.suggest_int("alpha", 1, 9996, step=5)
         self.best_score = None
 
 
@@ -202,7 +202,7 @@ class VAE(pl.LightningModule):
 
         in_features = 47
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 10, 500, step=10)
+            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 500, step=5)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -223,7 +223,7 @@ class VAE(pl.LightningModule):
 
         in_features = hidden_size
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 500, step=10)
+            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 500, step=5)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -291,19 +291,33 @@ class VAE(pl.LightningModule):
         self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
+    def _forward(self, x):
+        # Pass through encoder
+        mu, log_var = self.encode(x)
+        # Reparametrization Trick
+        hidden = self.reparametrize(mu, log_var)
+        del mu, log_var
+        import gc
+        gc.collect()
+        # Pass through decoder
+        output = self.decoder(hidden)
+
+        return output, hidden
+
     def test_step(self, batch):
         ### WIP
         x = batch
-        mu, log_var, x_out, hidden = self.forward(x)
+        # mu, log_var, x_out, hidden
+        x_out, hidden = self._forward(x)
 
         # Loss
-        kl_loss = (-0.5*(1+log_var - mu**2 -
-                         torch.exp(log_var)).sum(dim=1)).mean(dim=0)
-        recon_loss_criterion = nn.MSELoss()
-        recon_loss = recon_loss_criterion(x, x_out)
-        loss = recon_loss*self.alpha + kl_loss
+        #kl_loss = (-0.5*(1+log_var - mu**2 -
+        #                 torch.exp(log_var)).sum(dim=1)).mean(dim=0)
+        #recon_loss_criterion = nn.MSELoss()
+        #recon_loss = recon_loss_criterion(x, x_out)
+        #loss = recon_loss*self.alpha + kl_loss
 
-        return  mu, log_var, x_out, hidden
+        return  x_out, hidden
 
     def validation_step(self, batch, batch_idx):
      

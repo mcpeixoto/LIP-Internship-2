@@ -160,7 +160,7 @@ class VAE(pl.LightningModule):
         self.hidden_size = zdim
         hidden_size = self.hidden_size # yes I am lazy
         self.lr = trial.suggest_float("lr", 1e-10, 1e-2, log=True)
-        self.alpha = trial.suggest_int("alpha", 1, 10000, step=5)
+        self.alpha = trial.suggest_int("alpha", 1, 9996, step=5)
         self.best_score = None
 
 
@@ -171,7 +171,7 @@ class VAE(pl.LightningModule):
 
         in_features = 47
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 10, 500, step=10)
+            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 500, step=5https://github.com/mcpeixoto/ALGO)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -192,7 +192,7 @@ class VAE(pl.LightningModule):
 
         in_features = hidden_size
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 500, step=10)
+            out_features = trial.suggest_int("n_units_decoder_l{}".format(i), 5, 500, step=5)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 

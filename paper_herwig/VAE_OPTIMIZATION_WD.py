@@ -322,7 +322,7 @@ class VAE(pl.LightningModule):
         return DataLoader(train_set, batch_size=self.batch_size, num_workers=12)
 
     def val_dataloader(self):
-        val_set = _dataset(self.dataset, category='test')
+        val_set = _dataset(self.dataset, category='test') # Accidentally trained using test, this is acounted when showing the results
         self.validation_columns = val_set.get_columns()
         return DataLoader(val_set, batch_size=self.batch_size*4, num_workers=12)
 

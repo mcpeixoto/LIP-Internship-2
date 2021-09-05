@@ -171,7 +171,7 @@ class VAE(pl.LightningModule):
 
         in_features = 47
         for i in range(n_layers_encoder):
-            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 500, step=5https://github.com/mcpeixoto/ALGO)
+            out_features = trial.suggest_int("n_units_encoder_l{}".format(i), 5, 500, step=5)
             layers.append(nn.Linear(in_features, out_features))
             layers.append(nn.LeakyReLU())
 
@@ -283,7 +283,6 @@ class VAE(pl.LightningModule):
         weights = weights.cpu().numpy().reshape(-1)
 
         ## RANDOM SAMPLING
-        #sample = self.decode(torch.rand(x.shape).cuda()).detach().cpu().numpy()
         sample = self.decode(torch.rand(x.shape[0], self.hidden_size).cuda()).detach().cpu().numpy()
 
         assert sample.shape == x.shape, "Shapes are not the same!"
